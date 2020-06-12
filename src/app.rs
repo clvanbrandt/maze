@@ -23,14 +23,14 @@ pub struct App {
 
 impl App {
     pub fn new(gl: GlGraphics, resolution: [u32; 2]) -> Self {
-        let mut maze_generator = maze::BacktrackingGenerator::new(120, 60).start(1, 1);
+        let mut maze_generator = maze::BacktrackingGenerator::new(120, 60);
         maze_generator.initialize();
         App {
             gl,
             resolution,
             maze_generator,
             timer: 0.0,
-            delay_between_steps: 0.02,
+            delay_between_steps: 0.005,
         }
     }
 

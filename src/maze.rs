@@ -11,6 +11,7 @@ const WALL_COLOR: Color = [0.0, 0.0, 0.0, 1.0];
 const END_COLOR: Color = [1.0, 0.0, 0.0, 1.0];
 const START_COLOR: Color = [0.0, 1.0, 0.0, 1.0];
 const VISITED_COLOR: Color = [0.0, 0.0, 1.0, 1.0];
+const CURRENT_COLOR: Color = [0.0, 1.0, 1.0, 1.0];
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum Direction {
@@ -59,6 +60,7 @@ struct Cell {
     visited: bool,
     is_start: bool,
     is_end: bool,
+    is_current: bool,
 }
 
 pub struct Maze {
@@ -116,6 +118,12 @@ impl BacktrackingGenerator {
     pub fn get_maze(&self) -> &Maze {
         &self.maze
     }
+
+    fn set_current(&mut self, current: Point) {
+        self.maze.cells.get_mut(&self.current).unwrap().is_current = false;
+        self.current = current;
+        self.maze.cells.get_mut(&self.current).unwrap().is_current = true;
+    }
 }
 
 impl MazeGenerator for BacktrackingGenerator {
@@ -128,9 +136,11 @@ impl MazeGenerator for BacktrackingGenerator {
     fn next(&mut self) {
         if self.stack.is_empty() {
             self.done = true;
+            self.maze.cells.get_mut(&self.current).unwrap().is_current = false;
             return;
         }
-        self.current = self.stack.pop().unwrap();
+        let current = self.stack.pop().unwrap();
+        self.set_current(current);
         let next_cell_coord = match self.maze.get_random_unvisited_neighbor(&self.current) {
             Some(c) => {
                 self.stack.push(self.current);
@@ -231,6 +241,7 @@ impl Cell {
             visited: false,
             is_start,
             is_end,
+            is_current: false,
         }
     }
 
@@ -276,6 +287,8 @@ impl Cell {
             rectangle(START_COLOR, [x, y, cell_size, cell_size], c.transform, gl);
         } else if self.is_end {
             rectangle(END_COLOR, [x, y, cell_size, cell_size], c.transform, gl);
+        } else if self.is_current {
+            rectangle(CURRENT_COLOR, [x, y, cell_size, cell_size], c.transform, gl);
         } else if self.visited {
             rectangle(VISITED_COLOR, [x, y, cell_size, cell_size], c.transform, gl);
         }
