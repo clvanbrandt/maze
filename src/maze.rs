@@ -1,10 +1,9 @@
+use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use graphics;
-use graphics::modular_index::next;
+use derive_more::{Add, Sub};
 use graphics::types::Color;
-use opengl_graphics::GlGraphics;
-use rand;
 use rand::seq::SliceRandom;
 
 const WALL_COLOR: Color = [0.0, 0.0, 0.0, 1.0];
@@ -13,49 +12,34 @@ const START_COLOR: Color = [0.0, 1.0, 0.0, 1.0];
 const VISITED_COLOR: Color = [0.0, 0.0, 1.0, 1.0];
 const CURRENT_COLOR: Color = [0.0, 1.0, 1.0, 1.0];
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 enum Direction {
-    NORTH,
-    SOUTH,
-    EAST,
-    WEST,
+    North,
+    South,
+    East,
+    West,
 }
 
 impl Direction {
     fn opposite(&self) -> Self {
         match self {
-            Direction::NORTH => Direction::SOUTH,
-            Direction::SOUTH => Direction::NORTH,
-            Direction::EAST => Direction::WEST,
-            Direction::WEST => Direction::EAST,
+            Direction::North => Direction::South,
+            Direction::South => Direction::North,
+            Direction::East => Direction::West,
+            Direction::West => Direction::East,
         }
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Copy)]
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug, Add, Sub)]
 struct Point {
-    x: i32,
-    y: i32,
+    x: usize,
+    y: usize,
 }
 
-impl std::ops::Add for Point {
-    type Output = Point;
-
-    fn add(self, other: Point) -> Point {
-        Point { x: self.x + other.x, y: self.y + other.y }
-    }
-}
-
-impl std::ops::Sub for Point {
-    type Output = Point;
-
-    fn sub(self, other: Point) -> Point {
-        Point { x: self.x - other.x, y: self.y - other.y }
-    }
-}
-
+#[derive(Clone)]
 struct Cell {
-    coordinates: Point,
+    position: Point,
     walls: HashMap<Direction, bool>,
     visited: bool,
     is_start: bool,
@@ -63,141 +47,166 @@ struct Cell {
     is_current: bool,
 }
 
+#[derive(Clone)]
 pub struct Maze {
-    pub width: u32,
-    pub height: u32,
-    cells: HashMap<Point, Cell>,
+    pub width: usize,
+    pub height: usize,
+    cells: Vec<Vec<RefCell<Cell>>>,
     start: Point,
     end: Point,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum GeneratorState {
+    Clear,
+    Initialised,
+    InProgress,
+    Done,
 }
 
 pub struct BacktrackingGenerator {
     stack: Vec<Point>,
     maze: Maze,
     current: Point,
-    done: bool,
-}
-
-pub trait MazeGenerator {
-    fn initialize(&mut self);
-    fn next(&mut self);
-    fn generate(&mut self);
+    state: GeneratorState,
+    width: usize,
+    height: usize,
 }
 
 impl BacktrackingGenerator {
-    pub fn new(maze_width: u32, maze_height: u32) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         let stack = Vec::new();
-        let maze = Maze::new(maze_width, maze_height);
+        let maze = Maze::new(width, height);
         let current = maze.start;
-        BacktrackingGenerator {
+        Self {
             stack,
             maze,
             current,
-            done: false,
+            state: GeneratorState::Clear,
+            width,
+            height,
         }
     }
 
-    pub fn start(mut self, x: i32, y: i32) -> Self {
+    pub fn start(mut self, x: usize, y: usize) -> Self {
         self.set_start(x, y);
         self
     }
 
-    pub fn set_start(&mut self, x: i32, y: i32) {
+    pub fn set_start(&mut self, x: usize, y: usize) {
         self.maze.set_start(Point { x, y });
     }
 
-    pub fn end(mut self, x: i32, y: i32) -> Self {
+    pub fn end(mut self, x: usize, y: usize) -> Self {
         self.set_end(x, y);
         self
     }
 
-    pub fn set_end(&mut self, x: i32, y: i32) {
+    pub fn set_end(&mut self, x: usize, y: usize) {
         self.maze.set_end(Point { x, y });
     }
 
-    pub fn get_maze(&self) -> &Maze {
+    pub fn get_maze(&self) -> Maze {
+        self.maze.clone()
+    }
+
+    pub fn get_maze_ref(&self) -> &Maze {
         &self.maze
     }
 
-    fn set_current(&mut self, current: Point) {
-        self.maze.cells.get_mut(&self.current).unwrap().is_current = false;
-        self.current = current;
-        self.maze.cells.get_mut(&self.current).unwrap().is_current = true;
-    }
-}
-
-impl MazeGenerator for BacktrackingGenerator {
-    fn initialize(&mut self) {
-        self.current = self.maze.start;
-        self.stack.push(self.current);
-        self.maze.cells.get_mut(&self.maze.start).unwrap().visited = true;
+    fn set_current(&mut self, new_current: Point) {
+        self.maze.get_cell(self.current).borrow_mut().is_current = false;
+        self.current = new_current;
+        self.maze.get_cell(new_current).borrow_mut().is_current = true;
     }
 
-    fn next(&mut self) {
-        if self.stack.is_empty() {
-            self.done = true;
-            self.maze.cells.get_mut(&self.current).unwrap().is_current = false;
-            return;
-        }
-        let current = self.stack.pop().unwrap();
-        self.set_current(current);
-        let next_cell_coord = match self.maze.get_random_unvisited_neighbor(&self.current) {
-            Some(c) => {
-                self.stack.push(self.current);
-                c
-            }
-            None => return
-        };
-        let current_cell = self.maze.cells.get(&self.current).unwrap();
-        let next_cell = self.maze.cells.get(&next_cell_coord).unwrap();
-        let direction = current_cell.get_relative_direction(&next_cell);
-        let other_direction = direction.opposite();
-
-        let current_cell = self.maze.cells.get_mut(&self.current).unwrap();
-        current_cell.walls.insert(direction, false);
-        let next_cell = self.maze.cells.get_mut(&next_cell_coord).unwrap();
-        next_cell.walls.insert(other_direction, false);
-        next_cell.visited = true;
-        self.stack.push(next_cell_coord);
-    }
-
-    fn generate(&mut self) {
+    pub fn restart(&mut self) {
+        self.maze = Maze::new(self.width, self.height);
         self.initialize();
-        while !self.done { self.next(); }
+    }
+
+    pub fn initialize(&mut self) {
+        self.current = self.maze.start;
+        self.stack.push(self.maze.start);
+        self.maze.get_cell(self.maze.start).borrow_mut().visited = true;
+        self.state = GeneratorState::Initialised;
+    }
+
+    pub fn next(&mut self) -> Result<GeneratorState, ()> {
+        if GeneratorState::Clear == self.state {
+            Err(())
+        } else {
+            if self.stack.is_empty() {
+                self.state = GeneratorState::Done;
+                self.maze.get_cell(self.current).borrow_mut().is_current = false;
+            } else {
+                self.state = GeneratorState::InProgress;
+                let current = self.stack.pop().unwrap();
+                self.set_current(current);
+                if let Some(next) = self.maze.get_random_unvisited_neighbor(self.current) {
+                    self.stack.push(self.current);
+                    let mut current_cell = self.maze.get_cell(current).borrow_mut();
+                    let mut next_cell = self.maze.get_cell(next).borrow_mut();
+
+                    let direction = current_cell.get_relative_direction(&next_cell);
+                    let other_direction = direction.opposite();
+
+                    current_cell.walls.insert(direction, false);
+                    next_cell.walls.insert(other_direction, false);
+                    next_cell.visited = true;
+                    self.stack.push(next);
+                }
+            }
+            Ok(self.state)
+        }
+    }
+
+    pub fn generate(&mut self) {
+        self.initialize();
+        while self.next() != Ok(GeneratorState::Done) {}
     }
 }
+
 
 impl Maze {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         let start = Point { x: 0, y: 0 };
-        let end = Point { x: width as i32 - 1, y: height as i32 - 1 };
-        let mut cells = HashMap::new();
+        let end = Point { x: width - 1, y: height - 1 };
+        let cells = vec![vec![RefCell::new(Cell::new(0, 0, false, false)); height]; width];
 
-        for x in 0..width as i32 {
-            for y in 0..height as i32 {
-                let coordinates = Point { x, y };
-                let is_start = coordinates == start;
-                let is_end = coordinates == end;
-                cells.insert(coordinates, Cell::new(x, y, is_start, is_end));
+        for (x, row) in cells.iter().enumerate() {
+            for (y, cell) in row.iter().enumerate() {
+                cell.borrow_mut().position = Point { x, y };
             }
         }
-        Maze {
+
+        let maze = Self {
             width,
             height,
             cells,
             start,
             end,
-        }
+        };
+
+        maze.get_cell(start).borrow_mut().is_start = true;
+        maze.get_cell(end).borrow_mut().is_end = true;
+
+        maze
     }
 
-    fn get_random_unvisited_neighbor(&self, coord: &Point) -> Option<Point> {
-        let cell = self.cells.get(coord).unwrap();
-        let neighbors: Vec<Point> = cell.get_neighbors(self.width, self.height)
+    fn get_cell(&self, p: Point) -> &RefCell<Cell> {
+        self.cells.get(p.x).unwrap().get(p.y).unwrap()
+    }
+
+    fn get_random_unvisited_neighbor(&self, coord: Point) -> Option<Point> {
+        let cell = self.get_cell(coord);
+        let neighbors: Vec<Point> = cell.borrow().get_neighbors(self.width, self.height)
             .iter()
-            .map(|x| self.cells.get(x).unwrap())
-            .filter(|&c| !c.visited)
-            .map(|c| c.coordinates)
+            .map(|&x| self.get_cell(x).borrow())
+            .filter(|c| !c.visited)
+            .map(|c| c.position)
             .collect();
+
         match neighbors.choose(&mut rand::thread_rng()) {
             Some(&n) => Some(n),
             None => None
@@ -205,35 +214,37 @@ impl Maze {
     }
 
     fn set_start(&mut self, new_start: Point) {
-        self.cells.get_mut(&self.start).unwrap().is_start = false;
-        self.cells.get_mut(&new_start).unwrap().is_start = true;
+        self.get_cell(self.start).borrow_mut().is_start = false;
+        self.get_cell(new_start).borrow_mut().is_start = true;
         self.start = new_start;
     }
 
     fn set_end(&mut self, new_end: Point) {
-        self.cells.get_mut(&self.end).unwrap().is_end = false;
-        self.cells.get_mut(&new_end).unwrap().is_end = true;
+        self.get_cell(self.end).borrow_mut().is_end = false;
+        self.get_cell(new_end).borrow_mut().is_end = true;
         self.end = new_end;
     }
 
     pub fn draw(&self, c: &graphics::Context, gl: &mut opengl_graphics::GlGraphics, cell_size: f64) {
-        for (_, cell) in self.cells.iter() {
-            cell.draw(c, gl, cell_size);
+        for row in self.cells.iter() {
+            for cell in row.iter().map(|rc| rc.borrow()) {
+                cell.draw(c, gl, cell_size);
+            }
         }
     }
 }
 
 impl Cell {
-    pub fn new(x: i32, y: i32, is_start: bool, is_end: bool) -> Self {
+    pub fn new(x: usize, y: usize, is_start: bool, is_end: bool) -> Self {
         let mut walls = HashMap::new();
 
-        walls.insert(Direction::NORTH, true);
-        walls.insert(Direction::SOUTH, true);
-        walls.insert(Direction::EAST, true);
-        walls.insert(Direction::WEST, true);
+        walls.insert(Direction::North, true);
+        walls.insert(Direction::South, true);
+        walls.insert(Direction::East, true);
+        walls.insert(Direction::West, true);
 
-        Cell {
-            coordinates: Point {
+        Self {
+            position: Point {
                 x,
                 y,
             },
@@ -245,41 +256,39 @@ impl Cell {
         }
     }
 
-    fn get_neighbors(&self, maze_width: u32, maze_height: u32) -> Vec<Point> {
-        let mut potential_neighbor = Vec::new();
+    fn get_neighbors(&self, maze_width: usize, maze_height: usize) -> Vec<Point> {
+        let mut potential_neighbors = Vec::new();
         for (dx, dy) in [(-1, 0), (1, 0), (0, 1), (0, -1)].iter() {
-            potential_neighbor.push(Point { x: self.coordinates.x + *dx, y: self.coordinates.y + *dy });
+            let n_x = self.position.x as i32 + *dx;
+            let n_y = self.position.y as i32 + *dy;
+            if n_x >= 0 && n_x < maze_width as i32 && n_y >= 0 && n_y < maze_height as i32 {
+                potential_neighbors.push(Point { x: n_x as usize, y: n_y as usize });
+            }
         }
-        potential_neighbor
-            .into_iter()
-            .filter(|p| p.x >= 0 && p.x < maze_width as i32 && p.y >= 0 && p.y < maze_height as i32)
-            .collect()
+        potential_neighbors
     }
 
     fn get_relative_direction(&self, other: &Cell) -> Direction {
-        let dx = other.coordinates.x - self.coordinates.x;
-        if dx > 0 {
-            return Direction::EAST;
-        } else if dx < 0 {
-            return Direction::WEST;
-        }
-
-        let dy = other.coordinates.y - self.coordinates.y;
-        if dy > 0 {
-            Direction::SOUTH
-        } else {
-            Direction::NORTH
+        match other.position.x.cmp(&self.position.x) {
+            Ordering::Greater => Direction::East,
+            Ordering::Less => Direction::West,
+            Ordering::Equal => {
+                match other.position.y.cmp(&self.position.y) {
+                    Ordering::Greater => Direction::South,
+                    Ordering::Less => Direction::North,
+                    Ordering::Equal => panic!("Trying to remove a wall between a cell and itself")
+                }
+            }
         }
     }
 
-    fn to_gui_coordinates(p: i32, cell_size: f64) -> f64 {
-        p as f64 * cell_size
+    fn to_gui_coordinates(&self, cell_size: f64) -> (f64, f64) {
+        (self.position.x as f64 * cell_size, self.position.y as f64 * cell_size)
     }
 
     pub fn draw(&self, c: &graphics::Context, gl: &mut opengl_graphics::GlGraphics, cell_size: f64) {
         use graphics::*;
-        let x = Cell::to_gui_coordinates(self.coordinates.x, cell_size);
-        let y = Cell::to_gui_coordinates(self.coordinates.y, cell_size);
+        let (x, y) = self.to_gui_coordinates(cell_size);
 
         let wall_thickness = cell_size / 10.0 / 2.0;
 
@@ -293,18 +302,18 @@ impl Cell {
             rectangle(VISITED_COLOR, [x, y, cell_size, cell_size], c.transform, gl);
         }
 
-        for (dir, present) in self.walls.iter().filter(|(k, v)| **v) {
+        for (dir, _) in self.walls.iter().filter(|(_, &present)| present) {
             match dir {
-                Direction::NORTH => {
+                Direction::North => {
                     rectangle(WALL_COLOR, [x, y, cell_size, wall_thickness], c.transform, gl);
                 }
-                Direction::SOUTH => {
+                Direction::South => {
                     rectangle(WALL_COLOR, [x, y + cell_size - wall_thickness, cell_size, wall_thickness], c.transform, gl);
                 }
-                Direction::EAST => {
+                Direction::East => {
                     rectangle(WALL_COLOR, [x + cell_size - wall_thickness, y, wall_thickness, cell_size], c.transform, gl);
                 }
-                Direction::WEST => {
+                Direction::West => {
                     rectangle(WALL_COLOR, [x, y, wall_thickness, cell_size], c.transform, gl);
                 }
             }

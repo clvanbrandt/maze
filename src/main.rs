@@ -1,14 +1,15 @@
 use glutin_window::GlutinWindow as Window;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{Events, EventSettings};
-use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
+use piston::input::{ButtonEvent, RenderEvent, UpdateEvent};
+use piston::window;
 use piston::window::WindowSettings;
 
 mod app;
 mod maze;
 
 fn main() {
-    let resolution = [1200, 600];
+    let resolution = window::Size::from((1200, 600));
     let opengl = OpenGL::V3_2;
 
     // Create a window
@@ -32,6 +33,10 @@ fn main() {
 
         if let Some(args) = event.render_args() {
             app.render(&args);
+        }
+
+        if let Some(args) = event.button_args() {
+            app.input(&args);
         }
 
         if let Some(args) = event.update_args() {
