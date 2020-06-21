@@ -10,7 +10,7 @@ mod maze;
 
 fn main() {
     let resolution = window::Size::from((1200, 600));
-    let opengl = OpenGL::V3_2;
+    let opengl = OpenGL::V4_5;
 
     // Create a window
     let mut window: Window = WindowSettings::new("Rust Maze Generator", resolution)
