@@ -6,7 +6,6 @@ use piston::window;
 use piston::window::WindowSettings;
 
 mod app;
-mod maze;
 
 fn main() {
     let resolution = window::Size::from((1200, 600));

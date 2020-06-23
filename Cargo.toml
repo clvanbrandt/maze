@@ -13,3 +13,11 @@ pistoncore-glutin_window = "0.64.0"
 piston2d-opengl_graphics = "0.72.0"
 rand = "0.7.3"
 derive_more = "0.99.8"
+
+[[bin]]
+name = "maze"
+path = "src/main.rs"
+
+[lib]
+name = "maze"
+path = "src/lib.rs"

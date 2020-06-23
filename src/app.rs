@@ -6,9 +6,9 @@ use piston::input::{ButtonArgs, ButtonState, Key, RenderArgs, UpdateArgs};
 use piston::input::Button::Keyboard;
 use piston::window;
 
-use crate::maze;
-use crate::maze::BacktrackingCellState;
-use crate::maze::Point;
+use maze::generation;
+use maze::generation::BacktrackingCellState;
+use maze::maze::{Cell, Direction, Maze, Point};
 
 //const BACK_COLOR: Color = [0.204, 0.286, 0.369, 1.0];
 const BACK_COLOR: Color = [0.9, 0.9, 0.9, 1.0];
@@ -18,15 +18,18 @@ const VISITED_COLOR: Color = [0.0, 0.0, 1.0, 1.0];
 const CURRENT_COLOR: Color = [1.0, 1.0, 0.0, 1.0];
 const END_COLOR: Color = [1.0, 0.0, 0.0, 1.0];
 const START_COLOR: Color = [0.0, 1.0, 0.0, 1.0];
+const WALL_COLOR: Color = [0.0, 0.0, 0.0, 1.0];
+
 
 pub struct App {
     pub gl: GlGraphics,
     // App Space
     resolution: window::Size,
-    maze_generator: maze::BacktrackingGenerator,
-    maze_drawer: maze::Drawer,
+    maze_generator: generation::BacktrackingGenerator,
+    maze_drawer: MazeDrawer,
     delay_between_steps: f64,
     timer: f64,
+    paused: bool,
 }
 
 impl App {
@@ -37,9 +40,8 @@ impl App {
     }
 
     pub fn new(gl: GlGraphics, resolution: window::Size) -> Self {
-        let maze_generator = maze::BacktrackingGenerator::new(100, 60);
-        let maze = maze_generator.get_maze();
-        let maze_drawer = maze::Drawer::new(maze);
+        let maze_generator = generation::BacktrackingGenerator::new(100, 60);
+        let maze_drawer = MazeDrawer::new();
 
         let mut app = Self {
             gl,
@@ -48,6 +50,7 @@ impl App {
             timer: 0.0,
             delay_between_steps: 0.003,
             maze_drawer,
+            paused: false,
         };
         app.maze_drawer.set_cell_size(app.cell_size());
         app
@@ -59,16 +62,19 @@ impl App {
         self.resolution = window::Size::from(args.draw_size);
         let cell_size = self.cell_size();
 
+        let maze = self.maze_generator.get_maze_ref();
+
         let maze_drawer = &mut self.maze_drawer;
         maze_drawer.set_cell_size(cell_size);
+
 
         let state = self.maze_generator.get_cells_state();
         let color_map: HashMap<Point, Option<Color>> = state
             .iter()
             .map(|(&a, b)| {
-                if a == maze_drawer.get_maze().borrow().get_start() {
+                if a == maze.get_start() {
                     (a, Some(START_COLOR))
-                } else if a == maze_drawer.get_maze().borrow().get_end() {
+                } else if a == maze.get_end() {
                     (a, Some(END_COLOR))
                 } else {
                     match b {
@@ -83,20 +89,22 @@ impl App {
         self.gl.draw(args.viewport(), |c, gl| {
             clear(BACK_COLOR, gl);
 
-            maze_drawer.draw_maze(&c, gl, color_map);
+            maze_drawer.draw_maze(&c, gl, maze, color_map);
             //draw_borders(width, height, &c, gl);
         });
     }
 
     pub fn update(&mut self, args: &UpdateArgs) {
-        self.timer += args.dt;
-        if self.timer >= self.delay_between_steps {
-            let number_of_steps = (self.timer / self.delay_between_steps) as i32;
-            for _ in 0..number_of_steps {
-                self.timer -= self.delay_between_steps;
-                self.maze_generator.next_iter();
-                if self.maze_generator.is_done() {
-                    break;
+        if !self.paused {
+            self.timer += args.dt;
+            if self.timer >= self.delay_between_steps {
+                let number_of_steps = (self.timer / self.delay_between_steps) as i32;
+                for _ in 0..number_of_steps {
+                    self.timer -= self.delay_between_steps;
+                    self.maze_generator.next_iter();
+                    if self.maze_generator.is_done() {
+                        break;
+                    }
                 }
             }
         }
@@ -109,10 +117,94 @@ impl App {
                     self.maze_generator.restart();
                     self.timer = 0.0;
                 }
+            } else if let Key::P = key {
+                if args.state == ButtonState::Press {
+                    self.paused = !self.paused
+                }
             }
         }
     }
 }
+
+pub struct MazeDrawer {
+    x_offset: f64,
+    y_offset: f64,
+    cell_size: f64,
+}
+
+#[allow(dead_code)]
+impl MazeDrawer {
+    pub fn new() -> Self {
+        Self {
+            x_offset: 0.0,
+            y_offset: 0.0,
+            cell_size: 0.0,
+        }
+    }
+
+    pub fn x_offset(mut self, x_offset: f64) -> Self {
+        self.x_offset = x_offset;
+        self
+    }
+
+    pub fn y_offset(mut self, y_offset: f64) -> Self {
+        self.y_offset = y_offset;
+        self
+    }
+
+    pub fn cell_size(mut self, cell_size: f64) -> Self {
+        self.set_cell_size(cell_size);
+        self
+    }
+
+    pub fn set_cell_size(&mut self, cell_size: f64) {
+        self.cell_size = cell_size;
+    }
+
+
+    pub fn draw_maze(&self, c: &graphics::Context, gl: &mut opengl_graphics::GlGraphics, maze: &Maze, color_map: HashMap<Point, Option<Color>>) {
+        for row in maze.get_cells().iter() {
+            for cell in row.iter().map(|rc| rc) {
+                self.draw_cell(c, gl, &cell, *color_map.get(&cell.position).unwrap());
+            }
+        }
+    }
+
+    fn to_gui_coordinates(&self, cell: &Cell) -> (f64, f64) {
+        (cell.position.x as f64 * self.cell_size, cell.position.y as f64 * self.cell_size)
+    }
+
+    fn draw_cell(&self, c: &graphics::Context, gl: &mut opengl_graphics::GlGraphics, cell: &Cell, color: Option<Color>) {
+        use graphics::*;
+
+        let cell_size = self.cell_size;
+        let (x, y) = self.to_gui_coordinates(cell);
+
+        let wall_thickness = cell_size / 15.0;
+
+        if let Some(color) = color {
+            rectangle(color, [x, y, cell_size, cell_size], c.transform, gl);
+        }
+
+        for dir in cell.get_walls().iter() {
+            match dir {
+                Direction::North => {
+                    rectangle(WALL_COLOR, [x, y, cell_size, wall_thickness], c.transform, gl);
+                }
+                Direction::South => {
+                    rectangle(WALL_COLOR, [x, y + cell_size - wall_thickness, cell_size, wall_thickness], c.transform, gl);
+                }
+                Direction::East => {
+                    rectangle(WALL_COLOR, [x + cell_size - wall_thickness, y, wall_thickness, cell_size], c.transform, gl);
+                }
+                Direction::West => {
+                    rectangle(WALL_COLOR, [x, y, wall_thickness, cell_size], c.transform, gl);
+                }
+            }
+        }
+    }
+}
+
 
 /* fn draw_borders(width: &u32, height: &u32, c: &graphics::Context, gl: &mut GlGraphics) {
     use graphics::rectangle;
