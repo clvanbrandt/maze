@@ -1,31 +1,30 @@
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use crate::maze::{Maze, Point};
-use piston::input::keyboard::Key::P;
-use std::borrow::Borrow;
+
 use std::cmp::Ordering;
 
 pub type Path = Vec<Point>;
 
 #[derive(Eq, Debug)]
-struct State {
+struct CostState {
     cost: usize,
     position: Point,
 }
 
-impl State {
+impl CostState {
     fn new(cost: usize, position: Point) -> Self {
         Self { cost, position }
     }
 }
 
-impl std::cmp::Ord for State {
+impl std::cmp::Ord for CostState {
     fn cmp(&self, other: &Self) -> Ordering {
         self.cost.cmp(&other.cost)
     }
 }
 
-impl std::cmp::PartialOrd for State {
+impl std::cmp::PartialOrd for CostState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -47,18 +46,26 @@ impl std::cmp::PartialOrd for State {
     }
 }
 
-impl std::cmp::PartialEq for State {
+impl std::cmp::PartialEq for CostState {
     fn eq(&self, other: &Self) -> bool {
         self.cost == other.cost && self.position == other.position
     }
 }
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum SolverState {
+    Clear,
+    Initialised,
+    InProgress,
+    Done,
+}
 
 pub struct AStarSolver {
     maze: Maze,
-    open_set: HashSet<Point>,
+    open_set: BinaryHeap<CostState>,
+    in_open_set: HashSet<Point>,
     came_from: HashMap<Point, Point>,
     g_score: HashMap<Point, usize>,
-    f_score: HashMap<Point, usize>,
+    state: SolverState,
 }
 
 impl AStarSolver {
@@ -67,16 +74,17 @@ impl AStarSolver {
     }
 
     pub fn new(maze: Maze) -> Self {
-        let open_set = HashSet::new();
+        let open_set = BinaryHeap::new();
         let came_from = HashMap::new();
         let g_score = HashMap::with_capacity(maze.width * maze.height);
-        let f_score = HashMap::with_capacity(maze.width * maze.height);
+        let in_open_set = HashSet::new();
         Self {
             maze,
             open_set,
             came_from,
             g_score,
-            f_score,
+            in_open_set,
+            state: SolverState::Clear,
         }
     }
 
@@ -84,64 +92,77 @@ impl AStarSolver {
         self.maze = maze;
     }
 
-    fn initialisation(&mut self) {
+    fn initialize(&mut self) {
         let start = self.maze.get_start();
-        self.open_set.insert(start);
+        self.open_set
+            .push(CostState::new(self.heuristic(start), start));
+        self.in_open_set.insert(start);
 
         for x in 0..self.maze.width {
             for y in 0..self.maze.height {
                 self.g_score.insert(Point { x, y }, std::usize::MAX);
-                self.f_score.insert(Point { x, y }, std::usize::MAX);
             }
         }
         self.g_score.insert(start, 0);
-        self.f_score.insert(start, self.heuristic(start));
+        self.state = SolverState::Initialised;
     }
 
-    fn next_step(&mut self) {}
+    fn next_step(&mut self) -> Option<Path> {
+        if self.state == SolverState::Clear {
+            self.initialize()
+        }
 
-    pub fn solve(&mut self) -> Option<Path> {
-        self.initialisation();
+        self.state = SolverState::InProgress;
+
+        if self.open_set.is_empty() {
+            self.state = SolverState::Done;
+            return None;
+        }
 
         let goal = self.maze.get_end();
+        let current = self.open_set.pop().unwrap();
+        self.in_open_set.remove(&current.position);
 
-        while !self.open_set.is_empty() {
-            let mut score = std::usize::MAX;
-            let mut current = Point { x: 0, y: 0 };
-            for node in self.open_set.iter() {
-                let pot_score = *self.f_score.get(&node).unwrap();
-                if pot_score <= score {
-                    current = *node;
-                    score = pot_score;
-                }
-            }
-            if current == goal {
-                return Some(self.reconstruct_path(&current));
-            }
-            self.open_set.remove(&current);
-            let maze = &self.maze;
-            for &neighbor in current
-                .get_neighbors(self.maze.width, self.maze.height)
-                .iter()
-                .filter(|&p| !maze.is_wall_present(&current, p))
-            {
-                let tentative_gscore = self.g_score.get(&current).unwrap() + 1;
-                // 1 because distance between node and neighbor is 1
-                if tentative_gscore < *self.g_score.get(&neighbor).unwrap() {
-                    self.came_from.insert(neighbor, current);
-                    self.g_score.insert(neighbor, tentative_gscore);
-                    self.f_score
-                        .insert(neighbor, tentative_gscore + self.heuristic(neighbor));
-                    match self.open_set.get(&neighbor) {
-                        Some(_) => {}
-                        None => {
-                            self.open_set.insert(neighbor);
-                        }
-                    }
+        if current.position == goal {
+            return Some(self.reconstruct_path(&current.position));
+        }
+
+        let maze = &self.maze;
+        for &neighbor in current
+            .position
+            .get_neighbors(self.maze.width, self.maze.height)
+            .iter()
+            .filter(|&p| !maze.is_wall_present(&current.position, p))
+        {
+            let tentative_gscore = self.g_score.get(&current.position).unwrap() + 1;
+            // 1 because distance between node and neighbor is 1
+            if tentative_gscore < *self.g_score.get(&neighbor).unwrap() {
+                self.came_from.insert(neighbor, current.position);
+                self.g_score.insert(neighbor, tentative_gscore);
+
+                if !self.in_open_set.contains(&neighbor) {
+                    self.open_set.push(CostState::new(
+                        tentative_gscore + self.heuristic(neighbor),
+                        neighbor,
+                    ));
+                    self.in_open_set.insert(neighbor);
                 }
             }
         }
         None
+    }
+
+    pub fn solve(&mut self) -> Option<Path> {
+        while self.state != SolverState::Done {
+            if let Some(path) = self.next_step() {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    pub fn get_current_cost_map(&self) -> &HashMap<Point, usize> {
+        &self.g_score
     }
 
     fn reconstruct_path(&self, node: &Point) -> Path {
@@ -151,6 +172,7 @@ impl AStarSolver {
             current = prev;
             path.push(current);
         }
+        path.reverse();
         path
     }
 }
@@ -158,25 +180,25 @@ impl AStarSolver {
 #[cfg(test)]
 mod tests {
     use crate::maze::Point;
-    use crate::solving::State;
+    use crate::solving::CostState;
     use std::collections::BinaryHeap;
 
     #[test]
     fn min_heap() {
-        let mut heap: BinaryHeap<State> = BinaryHeap::new();
+        let mut heap: BinaryHeap<CostState> = BinaryHeap::new();
 
         let point = Point { x: 0, y: 0 };
 
-        heap.push(State::new(5, point));
-        heap.push(State::new(1, point));
-        heap.push(State::new(2, point));
-        heap.push(State::new(25, point));
-        heap.push(State::new(10, point));
+        heap.push(CostState::new(5, point));
+        heap.push(CostState::new(1, point));
+        heap.push(CostState::new(2, point));
+        heap.push(CostState::new(25, point));
+        heap.push(CostState::new(10, point));
 
-        assert_eq!(heap.pop(), Some(State::new(1, point)));
-        assert_eq!(heap.pop(), Some(State::new(2, point)));
-        assert_eq!(heap.pop(), Some(State::new(5, point)));
-        assert_eq!(heap.pop(), Some(State::new(10, point)));
-        assert_eq!(heap.pop(), Some(State::new(25, point)));
+        assert_eq!(heap.pop(), Some(CostState::new(1, point)));
+        assert_eq!(heap.pop(), Some(CostState::new(2, point)));
+        assert_eq!(heap.pop(), Some(CostState::new(5, point)));
+        assert_eq!(heap.pop(), Some(CostState::new(10, point)));
+        assert_eq!(heap.pop(), Some(CostState::new(25, point)));
     }
 }
