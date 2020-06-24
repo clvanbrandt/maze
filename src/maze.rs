@@ -41,7 +41,10 @@ impl Point {
             let n_x = self.x as i32 + *dx;
             let n_y = self.y as i32 + *dy;
             if n_x >= 0 && n_x < x_limit as i32 && n_y >= 0 && n_y < y_limit as i32 {
-                neighbors.push(Point { x: n_x as usize, y: n_y as usize });
+                neighbors.push(Point {
+                    x: n_x as usize,
+                    y: n_y as usize,
+                });
             }
         }
         neighbors
@@ -51,14 +54,17 @@ impl Point {
         match other.x.cmp(&self.x) {
             Ordering::Greater => Direction::East,
             Ordering::Less => Direction::West,
-            Ordering::Equal => {
-                match other.y.cmp(&self.y) {
-                    Ordering::Greater => Direction::South,
-                    Ordering::Less => Direction::North,
-                    Ordering::Equal => panic!("Trying to remove a wall between a cell and itself")
-                }
-            }
+            Ordering::Equal => match other.y.cmp(&self.y) {
+                Ordering::Greater => Direction::South,
+                Ordering::Less => Direction::North,
+                Ordering::Equal => panic!("Trying to remove a wall between a cell and itself"),
+            },
         }
+    }
+
+    pub fn get_distance(&self, other: &Point) -> usize {
+        ((self.x as isize - other.x as isize).abs() + (self.y as isize - other.y as isize).abs())
+            as usize
     }
 }
 
@@ -78,10 +84,7 @@ impl Cell {
         walls.insert(Direction::West);
 
         Self {
-            position: Point {
-                x,
-                y,
-            },
+            position: Point { x, y },
             walls,
         }
     }
@@ -112,12 +115,14 @@ pub struct Maze {
     end: Point,
 }
 
-
 #[allow(dead_code)]
 impl Maze {
     pub fn new(width: usize, height: usize) -> Self {
         let start = Point { x: 0, y: 0 };
-        let end = Point { x: width - 1, y: height - 1 };
+        let end = Point {
+            x: width - 1,
+            y: height - 1,
+        };
         let mut cells = vec![vec![Cell::new(0, 0); height]; width];
 
         for (x, row) in cells.iter_mut().enumerate() {
@@ -135,11 +140,11 @@ impl Maze {
         }
     }
 
-    pub fn get_cell_mut(&mut self, p: Point) -> &mut Cell {
+    pub fn get_cell_mut(&mut self, p: &Point) -> &mut Cell {
         self.cells.get_mut(p.x).unwrap().get_mut(p.y).unwrap()
     }
 
-    pub fn get_cell(&self, p: Point) -> &Cell {
+    pub fn get_cell(&self, p: &Point) -> &Cell {
         self.cells.get(p.x).unwrap().get(p.y).unwrap()
     }
 
@@ -161,5 +166,10 @@ impl Maze {
 
     pub fn get_cells(&self) -> &Vec<Vec<Cell>> {
         &self.cells
+    }
+
+    pub fn is_wall_present(&self, p1: &Point, p2: &Point) -> bool {
+        let direction = p1.get_relative_direction(&p2);
+        self.get_cell(p1).walls.contains(&direction)
     }
 }
