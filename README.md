@@ -5,7 +5,7 @@ Simple visualisation window created using Piston.
 
 ## Example
 
-[![Maze generation and solving](docs/maze.mov)](docs/maze.mov)
+[![Maze generation and solving](docs/maze.gif)](docs/maze.gif)
 
 ## Usage
 
