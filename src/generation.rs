@@ -104,13 +104,11 @@ impl BacktrackingGenerator {
             if let Some(next) = self.get_random_unvisited_neighbor(self.current) {
                 self.stack.push(self.current);
 
-                let direction = self.current.get_relative_direction(&next);
+                let direction = self.current.relative_direction(&next);
                 let other_direction = direction.opposite();
 
-                self.maze
-                    .get_cell_mut(&self.current)
-                    .remove_wall(&direction);
-                self.maze.get_cell_mut(&next).remove_wall(&other_direction);
+                self.maze.cell_mut(&self.current).remove_wall(&direction);
+                self.maze.cell_mut(&next).remove_wall(&other_direction);
 
                 self.cells_state
                     .insert(next, BacktrackingCellState::Visited);
@@ -126,7 +124,7 @@ impl BacktrackingGenerator {
 
     fn get_random_unvisited_neighbor(&self, coord: Point) -> Option<Point> {
         let neighbors: Vec<Point> = coord
-            .get_neighbors(self.width, self.height)
+            .neighbors(self.width, self.height)
             .iter()
             .filter_map(|&x| {
                 if *self.cells_state.get(&x).unwrap() == BacktrackingCellState::Unvisited {

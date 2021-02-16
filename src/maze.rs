@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
-use derive_more::{Add, Sub};
-
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub enum Direction {
     North,
@@ -22,7 +20,7 @@ impl Direction {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug, Add, Sub)]
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 pub struct Point {
     pub x: usize,
     pub y: usize,
@@ -35,7 +33,7 @@ impl std::convert::From<(usize, usize)> for Point {
 }
 
 impl Point {
-    pub fn get_neighbors(&self, x_limit: usize, y_limit: usize) -> Vec<Point> {
+    pub fn neighbors(&self, x_limit: usize, y_limit: usize) -> Vec<Point> {
         let mut neighbors = Vec::new();
         for (dx, dy) in [(-1, 0), (1, 0), (0, 1), (0, -1)].iter() {
             let n_x = self.x as i32 + *dx;
@@ -50,7 +48,7 @@ impl Point {
         neighbors
     }
 
-    pub fn get_relative_direction(&self, other: &Point) -> Direction {
+    pub fn relative_direction(&self, other: &Point) -> Direction {
         match other.x.cmp(&self.x) {
             Ordering::Greater => Direction::East,
             Ordering::Less => Direction::West,
@@ -62,7 +60,7 @@ impl Point {
         }
     }
 
-    pub fn get_distance(&self, other: &Point) -> usize {
+    pub fn distance(&self, other: &Point) -> usize {
         ((self.x as isize - other.x as isize).abs() + (self.y as isize - other.y as isize).abs())
             as usize
     }
@@ -89,7 +87,7 @@ impl Cell {
         }
     }
 
-    pub fn get_walls(&self) -> &HashSet<Direction> {
+    pub fn walls(&self) -> &HashSet<Direction> {
         &self.walls
     }
 
@@ -101,7 +99,7 @@ impl Cell {
         self.walls.insert(direction);
     }
 
-    pub fn get_walls_mut(&mut self) -> &mut HashSet<Direction> {
+    pub fn walls_mut(&mut self) -> &mut HashSet<Direction> {
         &mut self.walls
     }
 }
@@ -140,11 +138,11 @@ impl Maze {
         }
     }
 
-    pub fn get_cell_mut(&mut self, p: &Point) -> &mut Cell {
+    pub fn cell_mut(&mut self, p: &Point) -> &mut Cell {
         self.cells.get_mut(p.x).unwrap().get_mut(p.y).unwrap()
     }
 
-    pub fn get_cell(&self, p: &Point) -> &Cell {
+    pub fn cell(&self, p: &Point) -> &Cell {
         self.cells.get(p.x).unwrap().get(p.y).unwrap()
     }
 
@@ -156,20 +154,20 @@ impl Maze {
         self.end = Point { x, y };
     }
 
-    pub fn get_start(&self) -> Point {
+    pub fn start(&self) -> Point {
         self.start
     }
 
-    pub fn get_end(&self) -> Point {
+    pub fn end(&self) -> Point {
         self.end
     }
 
-    pub fn get_cells(&self) -> &Vec<Vec<Cell>> {
+    pub fn cells(&self) -> &Vec<Vec<Cell>> {
         &self.cells
     }
 
     pub fn is_wall_present(&self, p1: &Point, p2: &Point) -> bool {
-        let direction = p1.get_relative_direction(&p2);
-        self.get_cell(p1).walls.contains(&direction)
+        let direction = p1.relative_direction(&p2);
+        self.cell(p1).walls.contains(&direction)
     }
 }

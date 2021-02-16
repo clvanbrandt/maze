@@ -70,7 +70,7 @@ pub struct AStarSolver<'a> {
 
 impl<'a> AStarSolver<'a> {
     fn heuristic(&self, node: Point) -> usize {
-        node.get_distance(&self.maze.get_end())
+        node.distance(&self.maze.end())
     }
 
     pub fn new(maze: &'a Maze) -> Self {
@@ -93,7 +93,7 @@ impl<'a> AStarSolver<'a> {
     }
 
     fn initialize(&mut self) {
-        let start = self.maze.get_start();
+        let start = self.maze.start();
         self.open_set
             .push(CostState::new(self.heuristic(start), start));
         self.in_open_set.insert(start);
@@ -122,14 +122,14 @@ impl<'a> AStarSolver<'a> {
         let current = self.open_set.pop().unwrap();
         self.in_open_set.remove(&current.position);
 
-        if current.position == self.maze.get_end() {
+        if current.position == self.maze.end() {
             return Some(self.reconstruct_path(&current.position));
         }
 
         let maze = self.maze;
         for &neighbor in current
             .position
-            .get_neighbors(self.maze.width, self.maze.height)
+            .neighbors(self.maze.width, self.maze.height)
             .iter()
             .filter(|&p| !maze.is_wall_present(&current.position, p))
         {
@@ -160,7 +160,7 @@ impl<'a> AStarSolver<'a> {
         None
     }
 
-    pub fn get_current_cost_map(&self) -> &HashMap<Point, usize> {
+    pub fn current_cost_map(&self) -> &HashMap<Point, usize> {
         &self.g_score
     }
 

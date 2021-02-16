@@ -90,9 +90,9 @@ impl App {
         for x in 0..width {
             for y in 0..height {
                 let point = Point { x, y };
-                if point == maze_generator.get_maze_ref().get_start() {
+                if point == maze_generator.get_maze_ref().start() {
                     color_map.insert(point, Some(START_COLOR));
-                } else if point == maze_generator.get_maze_ref().get_end() {
+                } else if point == maze_generator.get_maze_ref().end() {
                     color_map.insert(point, Some(END_COLOR));
                 } else {
                     color_map.insert(point, None);
@@ -235,7 +235,7 @@ impl MazeDrawer {
         maze: &Maze,
         color_map: &HashMap<Point, Option<Color>>,
     ) {
-        for row in maze.get_cells().iter() {
+        for row in maze.cells().iter() {
             for cell in row.iter() {
                 self.draw_cell(c, gl, &cell, *color_map.get(&cell.position).unwrap());
             }
@@ -267,7 +267,7 @@ impl MazeDrawer {
             rectangle(color, [x, y, cell_size, cell_size], c.transform, gl);
         }
 
-        for dir in cell.get_walls().iter() {
+        for dir in cell.walls().iter() {
             match dir {
                 Direction::North => {
                     rectangle(
