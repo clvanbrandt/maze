@@ -59,8 +59,8 @@ enum SolverState {
     Done,
 }
 
-pub struct AStarSolver {
-    maze: Maze,
+pub struct AStarSolver<'a> {
+    maze: &'a Maze,
     open_set: BinaryHeap<CostState>,
     in_open_set: HashSet<Point>,
     came_from: HashMap<Point, Point>,
@@ -68,12 +68,12 @@ pub struct AStarSolver {
     state: SolverState,
 }
 
-impl AStarSolver {
+impl<'a> AStarSolver<'a> {
     fn heuristic(&self, node: Point) -> usize {
         node.get_distance(&self.maze.get_end())
     }
 
-    pub fn new(maze: Maze) -> Self {
+    pub fn new(maze: &'a Maze) -> Self {
         let open_set = BinaryHeap::new();
         let came_from = HashMap::new();
         let g_score = HashMap::with_capacity(maze.width * maze.height);
@@ -88,7 +88,7 @@ impl AStarSolver {
         }
     }
 
-    pub fn set_maze(&mut self, maze: Maze) {
+    pub fn set_maze(&mut self, maze: &'a Maze) {
         self.maze = maze;
     }
 
@@ -119,15 +119,14 @@ impl AStarSolver {
             return None;
         }
 
-        let goal = self.maze.get_end();
         let current = self.open_set.pop().unwrap();
         self.in_open_set.remove(&current.position);
 
-        if current.position == goal {
+        if current.position == self.maze.get_end() {
             return Some(self.reconstruct_path(&current.position));
         }
 
-        let maze = &self.maze;
+        let maze = self.maze;
         for &neighbor in current
             .position
             .get_neighbors(self.maze.width, self.maze.height)

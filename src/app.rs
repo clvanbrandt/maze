@@ -6,14 +6,12 @@ use piston::input::Button::Keyboard;
 use piston::input::{ButtonArgs, ButtonState, Key, RenderArgs, UpdateArgs};
 use piston::window;
 
-use maze::generation;
-use maze::generation::BacktrackingCellState;
+use maze::generation::{self, BacktrackingCellState};
 use maze::maze::{Cell, Direction, Maze, Point};
-use maze::solving::{AStarSolver, Path};
+use maze::solving::AStarSolver;
 
-//const BACK_COLOR: Color = [0.204, 0.286, 0.369, 1.0];
-const BACK_COLOR: Color = [0.9, 0.9, 0.9, 1.0];
-//const BORDER_COLOR: Color = [0.741, 0.765, 0.78, 1.0];
+const BACK_COLOR: Color = [0.204, 0.286, 0.369, 1.0];
+// const BACK_COLOR: Color = [0.9, 0.9, 0.9, 1.0];
 
 const VISITED_COLOR: Color = [0.0, 0.0, 1.0, 1.0];
 const CURRENT_COLOR: Color = [1.0, 1.0, 0.0, 1.0];
@@ -22,17 +20,30 @@ const START_COLOR: Color = [0.0, 1.0, 0.0, 1.0];
 const WALL_COLOR: Color = [0.0, 0.0, 0.0, 1.0];
 const PATH_COLOR: Color = [0.0, 48.0, 78.0, 1.0];
 
+type ColorMap = HashMap<Point, Option<Color>>;
+
+struct MazeInfo {
+    #[allow(dead_code)]
+    width: usize,
+    #[allow(dead_code)]
+    height: usize,
+    start: Point,
+    end: Point,
+}
+
 pub struct App {
     pub gl: GlGraphics,
     // App Space
     resolution: window::Size,
+    // Maze
     maze_generator: generation::BacktrackingGenerator,
     maze_drawer: MazeDrawer,
-    maze_solver: Option<AStarSolver>,
+    maze_info: MazeInfo,
+    color_map: HashMap<Point, Option<Color>>,
+    // Simulation
     delay_between_steps: f64,
     timer: f64,
     paused: bool,
-    path: Option<Path>,
 }
 
 impl App {
@@ -46,20 +57,59 @@ impl App {
         }
     }
 
+    fn clear_color_map(&mut self) {
+        let start = &self.maze_info.start;
+        let end = &self.maze_info.end;
+
+        self.color_map
+            .iter_mut()
+            .filter(|&(point, _)| point != start && point != end)
+            .for_each(|(_, color)| *color = None);
+    }
+
     pub fn new(gl: GlGraphics, resolution: window::Size) -> Self {
-        let maze_generator = generation::BacktrackingGenerator::new(30, 20);
+        let width = 30;
+        let height = 20;
+        let start = Point { x: 0, y: 0 };
+        let end = Point {
+            x: width - 1,
+            y: height - 1,
+        };
+
+        let maze_info = MazeInfo {
+            width,
+            height,
+            start,
+            end,
+        };
+
+        let maze_generator = generation::BacktrackingGenerator::new(width, height);
         let maze_drawer = MazeDrawer::new();
+
+        let mut color_map = ColorMap::with_capacity(width * height);
+        for x in 0..width {
+            for y in 0..height {
+                let point = Point { x, y };
+                if point == maze_generator.get_maze_ref().get_start() {
+                    color_map.insert(point, Some(START_COLOR));
+                } else if point == maze_generator.get_maze_ref().get_end() {
+                    color_map.insert(point, Some(END_COLOR));
+                } else {
+                    color_map.insert(point, None);
+                }
+            }
+        }
 
         let mut app = Self {
             gl,
             resolution,
+            maze_drawer,
+            maze_info,
             maze_generator,
             timer: 0.0,
-            delay_between_steps: 0.003,
-            maze_drawer,
+            delay_between_steps: 0.005,
             paused: false,
-            maze_solver: None,
-            path: None,
+            color_map,
         };
         app.maze_drawer.set_cell_size(app.cell_size());
         app
@@ -72,41 +122,18 @@ impl App {
         let cell_size = self.cell_size();
 
         let maze = self.maze_generator.get_maze_ref();
-        let start = maze.get_start();
-        let end = maze.get_end();
 
-        let maze_drawer = &mut self.maze_drawer;
-        maze_drawer.set_cell_size(cell_size);
+        let maze_drawer = {
+            let maze_drawer = &mut self.maze_drawer;
+            maze_drawer.set_cell_size(cell_size);
+            &self.maze_drawer
+        };
 
-        let state = self.maze_generator.get_cells_state();
-        let mut color_map: HashMap<Point, Option<Color>> = state
-            .iter()
-            .map(|(&a, b)| {
-                if a == start {
-                    (a, Some(START_COLOR))
-                } else if a == end {
-                    (a, Some(END_COLOR))
-                } else {
-                    match b {
-                        BacktrackingCellState::Unvisited => (a, None),
-                        BacktrackingCellState::Visited => (a, Some(VISITED_COLOR)),
-                        BacktrackingCellState::Current => (a, Some(CURRENT_COLOR)),
-                    }
-                }
-            })
-            .collect();
-
-        if let Some(path) = &self.path {
-            for node in path.iter().filter(|&&p| p != start && p != end) {
-                color_map.insert(*node, Some(PATH_COLOR));
-            }
-        }
+        let color_map = &self.color_map;
 
         self.gl.draw(args.viewport(), |c, gl| {
             clear(BACK_COLOR, gl);
-
-            maze_drawer.draw_maze(&c, gl, maze, color_map);
-            //draw_borders(width, height, &c, gl);
+            maze_drawer.draw_maze(&c, gl, &maze, &color_map);
         });
     }
 
@@ -117,7 +144,17 @@ impl App {
                 let number_of_steps = (self.timer / self.delay_between_steps) as i32;
                 for _ in 0..number_of_steps {
                     self.timer -= self.delay_between_steps;
-                    self.maze_generator.next_step();
+                    let modified_cells = self.maze_generator.next_step();
+                    modified_cells.iter().for_each(|(point, state)| {
+                        if point != &self.maze_info.start && point != &self.maze_info.end {
+                            let color = match state {
+                                BacktrackingCellState::Unvisited => None,
+                                BacktrackingCellState::Visited => Some(VISITED_COLOR),
+                                BacktrackingCellState::Current => Some(CURRENT_COLOR),
+                            };
+                            self.color_map.insert(*point, color);
+                        }
+                    });
                     if self.maze_generator.is_done() {
                         break;
                     }
@@ -131,8 +168,8 @@ impl App {
             if let Key::R = key {
                 if args.state == ButtonState::Press {
                     self.maze_generator.restart();
-                    self.path = None;
                     self.timer = 0.0;
+                    self.clear_color_map();
                 }
             } else if let Key::P = key {
                 if args.state == ButtonState::Press {
@@ -140,10 +177,16 @@ impl App {
                 }
             } else if let Key::S = key {
                 if args.state == ButtonState::Press {
-                    let mut maze_solver =
-                        AStarSolver::new(self.maze_generator.get_maze_ref().clone());
-                    self.path = maze_solver.solve();
-                    self.maze_solver = Some(maze_solver);
+                    let mut maze_solver = AStarSolver::new(self.maze_generator.get_maze_ref());
+
+                    let start = &self.maze_info.start;
+                    let end = &self.maze_info.end;
+
+                    if let Some(path) = maze_solver.solve() {
+                        for node in path.iter().filter(|&p| p != start && p != end) {
+                            self.color_map.insert(*node, Some(PATH_COLOR));
+                        }
+                    }
                 }
             }
         }
@@ -190,10 +233,10 @@ impl MazeDrawer {
         c: &graphics::Context,
         gl: &mut opengl_graphics::GlGraphics,
         maze: &Maze,
-        color_map: HashMap<Point, Option<Color>>,
+        color_map: &HashMap<Point, Option<Color>>,
     ) {
         for row in maze.get_cells().iter() {
-            for cell in row.iter().map(|rc| rc) {
+            for cell in row.iter() {
                 self.draw_cell(c, gl, &cell, *color_map.get(&cell.position).unwrap());
             }
         }
@@ -263,14 +306,44 @@ impl MazeDrawer {
     }
 }
 
-/* fn draw_borders(width: &u32, height: &u32, c: &graphics::Context, gl: &mut GlGraphics) {
-    use graphics::rectangle;
+// fn draw_borders(width: &u32, height: &u32, c: &graphics::Context, gl: &mut GlGraphics) {
+//     use graphics::rectangle;
 
-    let border_width = 20.0;
+//     let border_width = 20.0;
 
-    let transform = c.transform;
-    rectangle(BORDER_COLOR, [0.0, 0.0, *width as f64, border_width], transform, gl);
-    rectangle(BORDER_COLOR, [0.0, 0.0, border_width, *height as f64], transform, gl);
-    rectangle(BORDER_COLOR, [0.0, *height as f64 - border_width, *width as f64, border_width], transform, gl);
-    rectangle(BORDER_COLOR, [*width as f64 - border_width, 0.0, border_width, *height as f64], transform, gl);
-} */
+//     let transform = c.transform;
+//     rectangle(
+//         BORDER_COLOR,
+//         [0.0, 0.0, *width as f64, border_width],
+//         transform,
+//         gl,
+//     );
+//     rectangle(
+//         BORDER_COLOR,
+//         [0.0, 0.0, border_width, *height as f64],
+//         transform,
+//         gl,
+//     );
+//     rectangle(
+//         BORDER_COLOR,
+//         [
+//             0.0,
+//             *height as f64 - border_width,
+//             *width as f64,
+//             border_width,
+//         ],
+//         transform,
+//         gl,
+//     );
+//     rectangle(
+//         BORDER_COLOR,
+//         [
+//             *width as f64 - border_width,
+//             0.0,
+//             border_width,
+//             *height as f64,
+//         ],
+//         transform,
+//         gl,
+//     );
+// }

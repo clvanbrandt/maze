@@ -80,7 +80,9 @@ impl BacktrackingGenerator {
             .insert(start, BacktrackingCellState::Current);
     }
 
-    pub fn next_step(&mut self) {
+    pub fn next_step(&mut self) -> Vec<(Point, BacktrackingCellState)> {
+        let mut modified_cells = Vec::new();
+
         if GeneratorState::Clear == self.state {
             self.initialize();
         }
@@ -92,9 +94,12 @@ impl BacktrackingGenerator {
 
             self.cells_state
                 .insert(self.current, BacktrackingCellState::Visited);
+            modified_cells.push((self.current, BacktrackingCellState::Visited));
+
             self.current = self.stack.pop().unwrap();
             self.cells_state
                 .insert(self.current, BacktrackingCellState::Current);
+            modified_cells.push((self.current, BacktrackingCellState::Current));
 
             if let Some(next) = self.get_random_unvisited_neighbor(self.current) {
                 self.stack.push(self.current);
@@ -112,6 +117,7 @@ impl BacktrackingGenerator {
                 self.stack.push(next);
             }
         }
+        modified_cells
     }
 
     pub fn get_cells_state(&self) -> HashMap<Point, BacktrackingCellState> {
