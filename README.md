@@ -3,6 +3,10 @@
 Simple Backtracking Maze Generator + A-Star solver using Rust.
 Simple visualisation window created using Piston.
 
+## Example
+
+[![Maze generation and solving](docs/maze.mov](docs/maze.mov)
+
 ## Usage
 
 Press P to pause the maze generation.
