@@ -4,7 +4,9 @@ Simple visualisation window created using Piston.
 
 ## Usage
 Press P to pause the maze generation.
+
 Press S to solve the current maze.
+
 Press R to restart from scratch.
 
 ## TODO
