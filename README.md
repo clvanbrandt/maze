@@ -14,4 +14,5 @@ A lot, includes :
   - General cleanup of the code
   - Implement other solvers/generators
   - CLI argument parsing and forwarding (simulation steps, start and end, ...)
+  - Create a visualisation of the A-Star solver
   - ...
